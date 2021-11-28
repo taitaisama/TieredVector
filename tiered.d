@@ -1394,35 +1394,3 @@ unittest {
     }
   }
 }
-
-// for TieredVector 3d insert
-
-
-unittest {
-  const size_t x = 20;
-  int [] arr;
-  for (int i = 0; i < x*x*x; i ++){
-    arr ~= i+1;
-  }
-  for (int l = 0; l < 10000; l ++){
-    ////writeln(l);
-    size_t size = uniform(2, x*x*x - 1, r);
-    TieredVector!(int, x, x, x) v;
-    v.pushBack(arr[0 .. size]);
-    ////writeln(v.print());
-    size_t insertSize = uniform (1, x*x*x-size, r);
-    size_t pos = uniform (1, size, r);
-    ////writeln("inserting ", insertSize, " at ", pos, " in size of ", size);
-    v.insert(arr[0 .. insertSize], pos);
-    assert(v.size == size + insertSize);
-    for (int i = 0; i < pos; i ++){
-      assert(v[i] == i+1);
-    }
-    for (int i = 0; i < insertSize; i ++){
-      assert(v[i+pos] == i+1);
-    }
-    for (int i = 0; i < size-pos; i ++){
-      assert(v[i+pos+insertSize] == i+1+pos);
-    }
-  }
-}
