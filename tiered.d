@@ -2,7 +2,7 @@
 import core.stdc.string;
 import std.stdio;
 import std.conv;
-auto r = Random(64985);
+auto r = Random(324087);
 struct FixedQueue (T, size_t s){
   T [s] queue;
   size_t size = 0;
@@ -12,9 +12,6 @@ struct FixedQueue (T, size_t s){
   void clear () {
     size = 0;
     head = 0;
-  }
-  this (size_t queueSize){
-    size = queueSize;
   }
   string print (){
     string str = "";
@@ -57,8 +54,11 @@ struct FixedQueue (T, size_t s){
     }
   }
   void pushFront (T [] arr){
+    if (arr.length + size > s){
+      writeln(arr.length, " ", size, " ", s);
+    }
     assert (arr.length + size <= s);
-    if (head <= arr.length){
+    if (head < arr.length){
       memcpy(queue.ptr+(s+head-arr.length), arr.ptr, (arr.length-head)*T.sizeof);
       memcpy(queue.ptr, arr.ptr+(arr.length-head), (head)*T.sizeof);
       head = (s+head-arr.length);
@@ -242,6 +242,7 @@ struct FixedQueue (T, size_t s){
   }
   void popPushRight (L) (size_t count, ref L other){
     assert(count <= size && count + other.size <= other.capacity);
+    if (count == 0) return;
     if (count == size) {
       popPushRight(other);
       return;
@@ -257,11 +258,12 @@ struct FixedQueue (T, size_t s){
   }
   void popPushLeft (L) (size_t count, ref L other){
     assert(count <= size && count + other.size <= other.capacity);
+    if (count == 0) return;
     if (count == size) {
       popPushLeft(other);
       return;
     }
-    if (count + head > s){
+    if (count + head >= s){
       other.pushBack(queue[head .. s]);
       other.pushBack(queue[0 .. (head+count-s)]);
       head += count - s;
@@ -280,6 +282,9 @@ struct FixedQueue (T, size_t s){
     return queue[(head + idx) % s];
   }
   ref T absoluteIdx (size_t idx){
+    if (idx >= s){
+      writeln(idx, " ", s);
+    }
     return queue[idx];
   }
   size_t opDollar(){
@@ -296,6 +301,7 @@ size_t calcCapacity (N...)(N V){
 }
 
 struct TieredVector (T, N...) {
+  
   enum size_t width = N[0];
   enum size_t capacity = calcCapacity(N);
   enum size_t childCapacity = capacity/width;
@@ -306,7 +312,43 @@ struct TieredVector (T, N...) {
   else { // N.length == 2
     alias childType = FixedQueue!(T, N[1]);
   }
-  FixedQueue !(childType, width+1) queue = FixedQueue !(childType, width+1)(1);
+  FixedQueue !(childType, width+1) queue;
+  this (bool init){
+    queue.size = 1;
+    static if (N.length > 2){
+      for (size_t i = 0; i < width + 1; i ++){
+	queue.queue[i] = childType(init);
+      }
+    }
+  }
+  bool checkTV (){
+    bool check = queue[$-1].size != queue[$-1].capacity;
+    // assert(check);
+    if (queue.size == 1){
+      check = check && (size == queue[0].size && queue[0].size < queue[0].capacity);
+    }
+    else {
+      if (queue[$-1].size == 0){
+	check = check && (queue[$-2].size == queue[$-2].capacity);
+	// assert(check);
+      }
+    }
+    for (size_t i = 1; i < queue.size - 1; i ++){
+      check = check && (queue[i].size == queue[i].capacity);
+      // assert(check);
+    }
+    static if (N.length > 2){
+      for (size_t i = 0; i < queue.size; i ++){
+	check && queue[i].checkTV();
+	// assert(check);
+      }
+    }
+    size_t calcSize = 0;
+    for (size_t i = 0; i < queue.size; i ++){
+      calcSize += queue[i].size;
+    }
+    return check && (calcSize == size);
+  }
   size_t size = 0;
   string print (){
     string s = "";
@@ -331,6 +373,7 @@ struct TieredVector (T, N...) {
       queue[i].clear();
     }
     queue.clear();
+    queue.size = 1;
     size = 0;
   }
   void popBack (size_t count) {
@@ -342,6 +385,9 @@ struct TieredVector (T, N...) {
       queue.size --;
     }
     queue[$-1].popBack(count);
+    if (queue.size == 2 && queue[1].size == 0 && queue[0].size != queue[0].capacity){
+      queue.size --;
+    }
   }
   void popFront (size_t count) {
     assert(count <= size);
@@ -353,15 +399,32 @@ struct TieredVector (T, N...) {
       queue.head = queue.head == width ? 0 : queue.head + 1;
     }
     queue[0].popFront(count);
+    if (queue.size == 2 && queue[1].size == 0 && queue[0].size != queue[0].capacity){
+      queue.size --;
+    }
   }
   void pushBack (T [] arr){
     assert(arr.length + size <= capacity);
     size_t idx = 0;
+    // writeln(arr.length);
+    // static if (N.length > 2)
+    //   writeln(print());
     queue[$-1].pushBack(arr, idx);
+    // static if (N.length > 2){
+    //   writeln(print());
+    //   writeln(idx);
+    // }
     while (idx < arr.length){
       queue.size ++;
       queue[$-1].pushBack(arr, idx);
+      // static if (N.length > 2)
+      // 	writeln(print());
     }
+    if (queue[$-1].size == queue[$-1].capacity){
+      queue.size ++;
+    }
+    // static if (N.length > 2)
+    //   writeln("done");
     size += arr.length;
   }
   void pushBack (T [] arr, ref size_t idx){
@@ -370,54 +433,77 @@ struct TieredVector (T, N...) {
       idx = arr.length;
     }
     else {
-      pushBack(arr[idx .. (idx+capacity-size)]);
       idx += capacity - size;
+      pushBack(arr[idx-(capacity-size) .. idx]);
     }
   }
   void pushFront (T [] arr){
     assert(arr.length + size <= capacity);
+    string s = print();
+    size_t init = queue.size;
     size_t idx = arr.length;
+    // static if (N.length > 2){
+    //   writeln(arr.length);
+    //   writeln(print());
+    // }
     queue[0].pushFront(arr, idx);
+    // static if (N.length > 2){
+    //   writeln(print());
+    //   writeln(idx);
+    // }
     while (idx > 0){
       queue.size ++;
       queue.head = queue.head == 0 ? width : queue.head - 1;
       queue[0].pushFront(arr, idx);
+      // static if (N.length > 2)
+      // 	writeln(print());
+    }
+    if (queue[$-1].size == queue[$-1].capacity){
+      queue.size ++;
     }
     size += arr.length;
   }
   void pushFront (T [] arr, ref size_t idx){
     if (idx <= capacity - size){
       pushFront(arr[0 .. idx]);
-      idx = arr.length;
+      idx = 0;
     }
     else {
-      pushFront(arr[(idx-capacity+size) .. idx]);
       idx -= capacity - size;
+      pushFront(arr[(idx) .. (idx+capacity-size)]);
     }
   }
   void popPushRight (L)(ref L other){
     assert(other.size + size <= other.capacity);
-    for (int i = queue.size - 1; i >= 0; i --){
+    for (size_t i = queue.size - 1; i > 0; i --){
       queue[i].popPushRight(other);
     }
+    queue[0].popPushRight(other);
     size = 0;
     queue.clear();
+    queue.size = 1;
   }
   void popPushLeft (L)(ref L other){
     assert(other.size + size <= other.capacity);
-    for (int i = 0; i < queue.size; i ++){
+    for (size_t i = 0; i < queue.size; i ++){
       queue[i].popPushLeft(other);
     }
     size = 0;
     queue.clear();
+    queue.size = 1;
   }
   void popPushRight (L)(size_t count, ref L other){
     assert(other.size + count <= other.capacity);
     if (count == 0) return;
+    else if (count == size) {
+      popPushRight(other);
+      return;
+    }
     size_t idx = size - count;
     size_t i = (idx + childCapacity - queue[0].size) / childCapacity;
     size_t j = idx;
     if (i != 0) j += childCapacity - i*childCapacity - queue[0].size;
+    
     for (size_t k = queue.size - 1; k > i; k --){
       queue[k].popPushRight(other);
     }
@@ -426,8 +512,12 @@ struct TieredVector (T, N...) {
     queue.size = i + 1;
   }
   void popPushLeft (L)(size_t count, ref L other){
-    if (count == 0) return;
     assert(other.size + count <= other.capacity);
+    if (count == 0) return;
+    else if (count == size) {
+      popPushLeft(other);
+      return;
+    }
     size_t i = (count + childCapacity - queue[0].size) / childCapacity;
     size_t j = count;
     if (i != 0) j += childCapacity - i*childCapacity - queue[0].size;
@@ -437,14 +527,22 @@ struct TieredVector (T, N...) {
     queue[i].popPushLeft(j, other);
     size -= count;
     queue.size -= i;
-    queue.head += i;
-    if (queue.head > width + 1){
-      queue.head -= width + 1;
+    queue.head = (queue.head + i) % (width + 1);
+    if (queue.size == 2 && queue[1].size == 0 && queue[0].size != queue[0].capacity){
+      queue.size --;
     }
   }
   void insert (T [] arr, size_t idx){
     assert(arr.length + size <= capacity && idx < size);
     if (arr.length == 0) return;
+    if (idx == 0){
+      pushFront(arr);
+      return;
+    }
+    else if (idx == size){
+      pushBack(arr);
+      return;
+    }
     size_t i = (idx + childCapacity - queue[0].size)/ childCapacity;
     size_t j = idx;
     if (i != 0) j += childCapacity - i*childCapacity - queue[0].size;
@@ -532,7 +630,7 @@ struct TieredVector (T, N...) {
 	  queue.absoluteIdx(queue.head).pushFront(arr[done .. $]);
 	  size = endsize;
 	  queue.size += (width + 1 + queue.head - starti) % (width+1);
-	  queue.head = starti;
+	  queue.head = starti % (width + 1);
 	}
 	else {
 	  size_t shiftSize = queue[0].size + arr.length - childCapacity;
@@ -674,7 +772,10 @@ struct TieredVector (T, N...) {
 	  }
 	}
 	queue.size += (width + 1 + queue.head - starti) % (width+1);
-	queue.head = starti;
+	if (queue.head >= queue.capacity){
+	  writeln("pl");
+	}
+	queue.head = starti % (width + 1);
 	size = endsize;
       }
       else {
@@ -708,6 +809,10 @@ struct TieredVector (T, N...) {
 	size += arr.length;
       }
     }
+    
+    if (queue[$-1].size == queue[$-1].capacity){
+      queue.size ++;
+    }
   }
   void remove (size_t count, size_t idx){
     assert(idx + count <= size);
@@ -726,7 +831,7 @@ struct TieredVector (T, N...) {
       size -= count;
     }
     else if (size - idx - count < idx){
-      if (count < childCapacity){
+      if (count <= childCapacity){
 	if (queue[si].size - sj > count){
 	  queue[si].remove(count, sj);
 	  for (size_t k = si + 1; k < queue.size - 1; k ++){
@@ -783,7 +888,7 @@ struct TieredVector (T, N...) {
       }
     }
     else {
-      if (count < childCapacity){
+      if (count <= childCapacity){
 	if (queue[si].size - sj > count){
 	  queue[si].remove(count, sj);
 	  if (si != 0){
@@ -799,7 +904,6 @@ struct TieredVector (T, N...) {
 	    queue.size --;
 	    queue.head = queue.head == width ? 0 : queue.head + 1;
 	  }
-	  size -= count;
 	}
 	else {
 	  queue[si+1].popFront(ej);
@@ -825,8 +929,8 @@ struct TieredVector (T, N...) {
 	      }
 	    }
 	  }
-	  size -= count;
 	}
+	size -= count;
       }
       else {
 	queue[si].popBack(queue[si].size - sj);
@@ -843,16 +947,24 @@ struct TieredVector (T, N...) {
 	    queue.absoluteIdx(k).popPushRight(queue.absoluteIdx(k).size, this);
 	  }
 	  queue.absoluteIdx(0).popPushRight(queue.absoluteIdx(0).size, this);
-	  for (size_t k = width; k >= prevhead; k --){
+	  for (size_t k = width; k > prevhead; k --){
 	    queue.absoluteIdx(k).popPushRight(queue.absoluteIdx(k).size, this);
 	  }
+	  queue.absoluteIdx(prevhead).popPushRight(queue.absoluteIdx(prevhead).size, this);
 	}
 	else {
-	  for (size_t k = prevhead+si; k >= prevhead; k --){
+	  for (size_t k = prevhead+si; k > prevhead; k --){
 	    queue.absoluteIdx(k).popPushRight(queue.absoluteIdx(k).size, this);
 	  }
+	  queue.absoluteIdx(prevhead).popPushRight(queue.absoluteIdx(prevhead).size, this);
 	}
       }
+    }
+    if (queue[$-1].size == queue[$-1].capacity){
+      queue.size ++;
+    }
+    else if (queue.size == 2 && queue[1].size == 0 && queue[0].size != queue[0].capacity){
+      queue.size --;
     }
   }
 }
@@ -864,8 +976,8 @@ T min (T) (T a, T b){
   return a;
 }
 void main (){
-}
 
+}
 
 // for FixedQueue popPushRight
 
@@ -1105,13 +1217,16 @@ unittest {
 // for TieredVector 2d pushFront
 
 unittest {
-  const size_t x = 100;
-  for (int l = 0; l < 1000; l ++){
+  const size_t x = 10;
+  for (int l = 0; l < 10000; l ++){
     size_t size = uniform(1, x*x, r);
     size_t fsize = uniform(1, min(size+1, x+1), r);
     TieredVector!(int, x, x) v;
     size_t left = size;
-    v.queue.size = 1 + (size-fsize+x-1)/x;
+    v.queue.size = 1 + (size-fsize+x)/x;
+    if (size == fsize && fsize != x){
+      v.queue.size --;
+    }
     v.size = size;
     v.queue[0].size = fsize;
     left -= fsize;
@@ -1125,12 +1240,14 @@ unittest {
     for (int i = 0; i < cast(int)size; i ++){
       v[i] = i+1;
     }
+    assert(v.checkTV());
     size_t pb = uniform(1, x*x-size+1, r);
     int [] arr;
     for (int i = 0; i < cast(int)pb; i ++){
       arr ~= 1001+i;
     }
     v.pushFront(arr);
+    assert(v.checkTV());
     assert(v.size == size+arr.length);
     for (size_t i = 0; i < pb; i ++){
       assert(v[i] == i+1001);
@@ -1145,13 +1262,16 @@ unittest {
 // for TieredVector 2d pushBack
 
 unittest {
-  const size_t x = 100;
-  for (int l = 0; l < 1000; l ++){
+  const size_t x = 10;
+  for (int l = 0; l < 10000; l ++){
     size_t size = uniform(1, x*x, r);
     size_t fsize = uniform(1, min(size+1, x+1), r);
     TieredVector!(int, x, x) v;
     size_t left = size;
-    v.queue.size = 1 + (size-fsize+x-1)/x;
+    v.queue.size = 1 + (size-fsize+x)/x;
+    if (size == fsize && fsize != x){
+      v.queue.size --;
+    }
     v.size = size;
     v.queue[0].size = fsize;
     left -= fsize;
@@ -1165,12 +1285,14 @@ unittest {
     for (int i = 0; i < cast(int)size; i ++){
       v[i] = i+1;
     }
+    assert(v.checkTV());
     size_t pb = uniform(1, x*x-size+1, r);
     int [] arr;
     for (int i = 0; i < cast(int)pb; i ++){
       arr ~= 1001+i;
     }
     v.pushBack(arr);
+    assert(v.checkTV());
     assert(v.size == size+arr.length);
     for (size_t i = 0; i < size; i ++){
       assert(v[i] == i+1);
@@ -1184,13 +1306,16 @@ unittest {
 // for TieredVector 2d popBack
 
 unittest {
-  const size_t x = 100;
-  for (int l = 0; l < 1000; l ++){
+  const size_t x = 10;
+  for (int l = 0; l < 10000; l ++){
     size_t size = uniform(1, x*x, r);
     size_t fsize = uniform(1, min(size+1, x+1), r);
     TieredVector!(int, x, x) v;
     size_t left = size;
-    v.queue.size = 1 + (size-fsize+x-1)/x;
+    v.queue.size = 1 + (size-fsize+x)/x;
+    if (size == fsize && fsize != x){
+      v.queue.size --;
+    }
     v.size = size;
     v.queue[0].size = fsize;
     left -= fsize;
@@ -1204,8 +1329,10 @@ unittest {
     for (int i = 0; i < cast(int)size; i ++){
       v[i] = i+1;
     }
+    assert(v.checkTV());
     size_t count = uniform(1, size+1, r);
     v.popBack(count);
+    assert(v.checkTV());
     assert(v.size == size - count);
     for (size_t i = 0; i < size-count; i ++){
       assert(v[i] == i+1);
@@ -1216,13 +1343,16 @@ unittest {
 // for TieredVector 2d popFront
 
 unittest {
-  const size_t x = 100;
-  for (int l = 0; l < 1000; l ++){
+  const size_t x = 10;
+  for (int l = 0; l < 10000; l ++){
     size_t size = uniform(1, x*x, r);
     size_t fsize = uniform(1, min(size+1, x+1), r);
     TieredVector!(int, x, x) v;
     size_t left = size;
-    v.queue.size = 1 + (size-fsize+x-1)/x;
+    v.queue.size = 1 + (size-fsize+x)/x;
+    if (size == fsize && fsize != x){
+      v.queue.size --;
+    }
     v.size = size;
     v.queue[0].size = fsize;
     left -= fsize;
@@ -1236,8 +1366,10 @@ unittest {
     for (int i = 0; i < cast(int)size; i ++){
       v[i] = i+1;
     }
+    assert(v.checkTV());
     size_t count = uniform(1, size+1, r);
     v.popFront(count);
+    assert(v.checkTV());
     assert(v.size == size - count);
     for (size_t i = 0; i < size-count; i ++){
       assert(v[i] == i+1+count);
@@ -1248,7 +1380,7 @@ unittest {
 // for TieredVector 2d popPushRight
 
 unittest {
-  const size_t x = 100;
+  const size_t x = 10;
   int [] arr;
   for (int i = 0; i < x*x; i ++){
     arr ~= i+1;
@@ -1256,14 +1388,22 @@ unittest {
   for (int l = 0; l < 10000; l ++){
     size_t size1 = uniform(2, x*x, r);
     size_t size2 = uniform(1, x*x-1, r);
-    TieredVector!(int, x, x) v1;
+    TieredVector!(int, x, x) v1 = TieredVector!(int, x, x)(true);
     // v1.queue.size = 1;
     v1.pushBack(arr[0 .. size1]);
-    TieredVector!(int, x, x) v2;
+    assert(v1.checkTV());
+    TieredVector!(int, x, x) v2 = TieredVector!(int, x, x)(true);
     // v2.queue.size = 1;
     v2.pushBack(arr[0 .. size2]);
+    
+    assert(v2.checkTV());
+    // writeln("initial", "\n", v1.print(), "\n\n\n", v2.print(), "\n\n\n");
     size_t pushSize = uniform(1, min(x*x-size2, size1), r);
     v1.popPushRight(pushSize, v2);
+    // writeln("final", "\n", v1.print(), "\n\n\n", v2.print(), "\n\n\n");
+    // writeln(v2.queue.size);
+    assert(v1.checkTV());
+    assert(v2.checkTV());
     assert(v1.size == size1-pushSize);
     assert(v2.size == size2+pushSize);
     for (size_t i = 0; i < size1-pushSize; i ++){
@@ -1281,7 +1421,7 @@ unittest {
 // for TieredVector 2d popPushLeft
 
 unittest {
-  const size_t x = 100;
+  const size_t x = 10;
   int [] arr;
   for (int i = 0; i < x*x; i ++){
     arr ~= i+1;
@@ -1289,14 +1429,18 @@ unittest {
   for (int l = 0; l < 10000; l ++){
     size_t size1 = uniform(2, x*x, r);
     size_t size2 = uniform(1, x*x-1, r);
-    TieredVector!(int, x, x) v1;
+    TieredVector!(int, x, x) v1 = TieredVector!(int, x, x)(true);
     // v1.queue.size = 1;
     v1.pushBack(arr[0 .. size1]);
-    TieredVector!(int, x, x) v2;
+    assert(v1.checkTV());
+    TieredVector!(int, x, x) v2 = TieredVector!(int, x, x)(true);
     // v2.queue.size = 1;
     v2.pushBack(arr[0 .. size2]);
+    assert(v2.checkTV());
     size_t pushSize = uniform(1, min(x*x-size2, size1), r);
     v1.popPushLeft(pushSize, v2);
+    assert(v1.checkTV());
+    assert(v2.checkTV());
     assert(v1.size == size1-pushSize);
     assert(v2.size == size2+pushSize);
     for (size_t i = pushSize; i < size1; i ++){
@@ -1314,19 +1458,20 @@ unittest {
 // for TieredVector 2d isnert
 
 unittest {
-  const size_t x = 100;
+  const size_t x = 10;
   int [] arr;
   for (int i = 0; i < x*x; i ++){
     arr ~= i+1;
   }
   for (int l = 0; l < 10000; l ++){
-    size_t size = uniform(2, x*x - 1, r);
+    size_t size = uniform(1, x*x-1, r);
     size_t fsize = uniform(1, min(size+1, x+1), r);
-    size_t offset = uniform (1, x+1, r);
     TieredVector!(int, x, x) v;
     size_t left = size;
-    v.queue.size = 1 + (size-fsize+x-1)/x;
-    v.queue.head = offset;
+    v.queue.size = 1 + (size-fsize+x)/x;
+    if (size == fsize && fsize != x){
+      v.queue.size --;
+    }
     v.size = size;
     v.queue[0].size = fsize;
     left -= fsize;
@@ -1340,9 +1485,11 @@ unittest {
     for (int i = 0; i < cast(int)size; i ++){
       v[i] = i+1;
     }
+    assert(v.checkTV());
     size_t insertSize = uniform (1, x*x-size, r);
-    size_t pos = uniform (1, size, r);
+    size_t pos = uniform (0, size, r);
     v.insert(arr[0 .. insertSize], pos);
+    assert(v.checkTV());
     assert(v.size == size + insertSize);
     for (int i = 0; i < pos; i ++){
       assert(v[i] == i+1);
@@ -1360,15 +1507,16 @@ unittest {
 // for TieredVector 2d remove
 
 unittest {
-  const size_t x = 100;
+  const size_t x = 10;
   for (int l = 0; l < 10000; l ++){
-    size_t size = uniform(2, x*x - 1, r);
+    size_t size = uniform(2, x*x-1, r);
     size_t fsize = uniform(1, min(size+1, x+1), r);
-    size_t offset = uniform (1, x+1, r);
     TieredVector!(int, x, x) v;
     size_t left = size;
-    v.queue.size = 1 + (size-fsize+x-1)/x;
-    v.queue.head = offset;
+    v.queue.size = 1 + (size-fsize+x)/x;
+    if (size == fsize && fsize != x){
+      v.queue.size --;
+    }
     v.size = size;
     v.queue[0].size = fsize;
     left -= fsize;
@@ -1382,15 +1530,327 @@ unittest {
     for (int i = 0; i < cast(int)size; i ++){
       v[i] = i+1;
     }
+    assert(v.checkTV());
     size_t pos = uniform (0, size - 1, r);
     size_t removesize = uniform (1, size-pos, r);
     v.remove(removesize, pos);
+    assert(v.checkTV());
     assert(v.size == size - removesize);
     for (size_t i = 0; i < pos; i ++){
       assert(v[i] == i+1);
     }
     for (int i = cast(int)(pos+removesize); i < size; i ++){
       assert(v[i-removesize] == i+1);
+    }
+  }
+}
+
+// for TieredVector 3d pushBack (for empty)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t size = uniform(1, x*x*x, r);
+    TieredVector!(int, x, x, x) v = TieredVector!(int, x, x, x)(true);
+    v.pushBack(arr[0 .. size]);
+    assert(v.size == size);
+    assert(v.checkTV());
+    for (size_t i = 0; i < size; i ++){
+      assert(v[i] == i+1);
+    }
+  }
+}
+
+// for TieredVector 3d pushFront (for empty)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t size = uniform(1, x*x*x, r);
+    TieredVector!(int, x, x, x) v = TieredVector!(int, x, x, x)(true);
+    v.pushFront(arr[0 .. size]);
+    assert(v.checkTV());
+    assert(v.size == size);
+    for (size_t i = 0; i < size; i ++){
+      assert(v[i] == i+1);
+    }
+  }
+}
+
+// for TieredVector 3d popBack (for filled from start)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t size = uniform(2, x*x*x, r);
+    TieredVector!(int, x, x, x) v = TieredVector!(int, x, x, x)(true);
+    v.pushFront(arr[0 .. size]);
+    assert(v.checkTV());
+    size_t removeSize = uniform(1, size, r);
+    v.popBack(removeSize);
+    assert(v.checkTV());
+    assert(v.size == size-removeSize);
+    for (size_t i = 0; i < size - removeSize; i ++){
+      assert(v[i] == i+1);
+    }
+  }
+}
+
+// for TieredVector 3d popFront (for filled from start)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t size = uniform(2, x*x*x, r);
+    TieredVector!(int, x, x, x) v = TieredVector!(int, x, x, x)(true);
+    v.pushFront(arr[0 .. size]);
+    assert(v.checkTV());
+    size_t removeSize = uniform(1, size, r);
+    v.popFront(removeSize);
+    assert(v.checkTV());
+    assert(v.size == size-removeSize);
+    for (size_t i = 0; i < size - removeSize; i ++){
+      assert(v[i] == i+1+removeSize);
+    }
+  }
+}
+
+// for TieredVector 3d pushBack (general, first push, then popFront, then pushBack)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t size = uniform(2, x*x*x, r);
+    TieredVector!(int, x, x, x) v = TieredVector!(int, x, x, x)(true);
+    v.pushFront(arr[0 .. size]);
+    assert(v.checkTV());
+    size_t removeSize = uniform(1, size, r);
+    v.popFront(removeSize);
+    assert(v.checkTV());
+    size_t insertSize = uniform(1, v.capacity-v.size, r);
+    v.pushBack(arr[0 .. insertSize]);
+    assert(v.checkTV());
+    assert(v.size == insertSize+size-removeSize);
+    for (size_t i = 0; i < size-removeSize; i ++){
+      assert(v[i] == i+1+removeSize);
+    }
+    for (int i = 0; i < insertSize; i ++){
+      assert(v[i+size-removeSize] == i+1);
+    }
+  }
+}
+
+
+// for TieredVector 3d pushFront (general, first push, then popFront, then pushFront)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t size = uniform(2, x*x*x, r);
+    TieredVector!(int, x, x, x) v = TieredVector!(int, x, x, x)(true);
+    v.pushFront(arr[0 .. size]);
+    assert(v.checkTV());
+    size_t removeSize = uniform(1, size, r);
+    v.popFront(removeSize);
+    assert(v.checkTV());
+    size_t insertSize = uniform(1, v.capacity-v.size, r);
+    v.pushFront(arr[0 .. insertSize]);
+    assert(v.checkTV());
+    assert(v.size == insertSize+size-removeSize);
+    for (size_t i = 0; i < insertSize; i ++){
+      assert(v[i] == i+1);
+    }
+    for (size_t i = insertSize; i < insertSize+size-removeSize; i ++){
+      assert(v[i] == i+1-insertSize+removeSize);
+    }
+  }
+}
+
+// for TieredVector 3d popPushRight (general)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    // writeln(l);
+    size_t a1, a2, s1, s2;
+    a1 = uniform(1, x*x*x, r);
+    a2 = uniform(1, x*x*x, r);
+    TieredVector!(int, x, x, x) v1 = TieredVector!(int, x, x, x)(true);
+    TieredVector!(int, x, x, x) v2 = TieredVector!(int, x, x, x)(true);
+    v1.pushBack(arr[0 .. a1]);
+    v2.pushBack(arr[0 .. a2]);
+    s1 = uniform(2, x*x*x, r);    s2 = uniform(1, x*x*x-1, r);
+    v1.popFront(a1-1);
+    v2.popFront(a2-1);
+    v1.pushBack(arr[0 .. 1]);
+    v2.pushBack(arr[0 .. 1]);
+    v1.popFront(1);
+    v2.popFront(1);
+    if (s1 != 1)
+      v1.pushBack(arr[1 .. s1]);
+    if (s2 != 1)
+      v2.pushBack(arr[1 .. s2]);
+    assert(v1.checkTV());
+    assert(v2.checkTV());
+    // writeln(s1, " ", s2, " ", v1.print(), " ", v2.print());
+    size_t poppush = uniform(1, min(s1, v2.capacity-s2), r);
+    v1.popPushRight(poppush, v2);
+    assert(v1.checkTV());
+    assert(v2.checkTV());
+    assert(v1.size == s1-poppush);
+    assert(v2.size == s2+poppush);
+    for (size_t i = 0; i < s1-poppush; i ++){
+      assert(v1[i] == i+1);
+    }
+    for (size_t i = 0; i < poppush; i ++){
+      assert(v2[i] == i+s1-poppush+1);
+    }
+    for (size_t i = poppush; i < v2.size; i ++){
+      assert(v2[i] == i+1-poppush);
+    }
+  }
+}
+
+// for TieredVector 3d popPushLeft (general)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t a1, a2, s1, s2;
+    a1 = uniform(1, x*x*x, r);
+    a2 = uniform(1, x*x*x, r);
+    TieredVector!(int, x, x, x) v1 = TieredVector!(int, x, x, x)(true);
+    TieredVector!(int, x, x, x) v2 = TieredVector!(int, x, x, x)(true);
+    v1.pushBack(arr[0 .. a1]);
+    v2.pushBack(arr[0 .. a2]);
+    s1 = uniform(2, x*x*x, r);
+    s2 = uniform(1, x*x*x-1, r);
+    v1.popFront(a1-1);
+    v2.popFront(a2-1);
+    v1.pushBack(arr[0 .. 1]);
+    v2.pushBack(arr[0 .. 1]);
+    v1.popFront(1);
+    v2.popFront(1);
+    if (s1 != 1)
+      v1.pushBack(arr[1 .. s1]);
+    if (s2 != 1)
+      v2.pushBack(arr[1 .. s2]);
+    assert(v1.checkTV());
+    assert(v2.checkTV());
+    // writeln(s1, " ", s2, " ", v1.print(), " ", v2.print());
+    size_t poppush = uniform(1, min(s1, v2.capacity-s2), r);
+    v1.popPushLeft(poppush, v2);
+    assert(v1.checkTV());
+    assert(v2.checkTV());
+    assert(v1.size == s1-poppush);
+    assert(v2.size == s2+poppush);
+    for (size_t i = 0; i < s1-poppush; i ++){
+      assert(v1[i] == i+1+poppush);
+    }
+    for (size_t i = 0; i < s2; i ++){
+      assert(v2[i] == i+1);
+    }
+    for (size_t i = s2; i < v2.size; i ++){
+      assert(v2[i] == i+1-s2);
+    }
+  }
+}
+
+
+//for TieredVector 3d insert (general)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t size = uniform(2, x*x*x, r);
+    // writeln(l);
+    TieredVector!(int, x, x, x) v = TieredVector!(int, x, x, x)(true);
+    v.pushFront(arr[0 .. size]);
+    size_t removeSize = uniform(1, size, r);
+    v.popFront(removeSize);
+    size_t insertSize = uniform(1, v.capacity-v.size, r);
+    size_t pos = uniform(0, size-removeSize, r);
+    // writeln("inserting ", insertSize, " in size of ", size - removeSize, " remove size being ", removeSize, " at ", pos);
+    assert(v.checkTV());
+    // writeln(v.print());
+    assert(v.queue.head < v.queue.capacity);
+    v.insert(arr[0 .. insertSize], pos);
+    // writeln("final");
+    // writeln(v.print());
+    assert(v.checkTV());
+    assert(v.size == insertSize+size-removeSize);
+    for (size_t i = 0; i < pos; i ++){
+      assert(v[i] == i+1+removeSize);
+    }
+    for (size_t i = pos; i < pos+insertSize; i ++){
+      // writeln(v[i], " ", i , " ", i + 1 - pos);
+      assert(v[i] == i+1-pos);
+    }
+    for (size_t i = pos+insertSize; i < v.size; i ++){
+      assert(v[i] == i+1+removeSize-insertSize);
+    }
+  }
+}
+
+//for TieredVector 3d remove (general)
+
+unittest {
+  const size_t x = 10;
+  int [] arr;
+  for (int i = 0; i < x*x*x; i ++){
+    arr ~= i+1;
+  }
+  for (int l = 0; l < 10000; l ++){
+    size_t size = uniform(2, x*x*x, r);
+    TieredVector!(int, x, x, x) v = TieredVector!(int, x, x, x)(true);
+    v.pushFront(arr[0 .. size]);
+    size_t removeSize = uniform(0, size-1, r);
+    v.popFront(removeSize);
+    size_t pos = uniform(0, v.size, r);
+    size_t remove = uniform(0, v.size-pos, r);
+    v.remove(remove, pos);
+    assert(v.size == size-removeSize-remove);
+    for (size_t i = 0; i < pos; i ++){
+      assert(v[i] == i+1+removeSize);
+    }
+    for (size_t i = pos; i < v.size; i ++){
+      assert(v[i] == i+1+removeSize+remove);
     }
   }
 }
